@@ -155,3 +155,118 @@ def normalize_corpus(corpus, html_stripping=True, contraction_expansion=True,
         normalized_corpus.append(doc)
         
     return normalized_corpus
+
+
+def extract_named_ents(text):
+    """Extract named entities, and beginning, middle and end idx using spaCy's out-of-the-box model. 
+    
+    Keyword arguments:
+    text -- the actual text source from which to extract entities
+    
+    """
+    return [(ent.text, ent.start_char, ent.end_char, ent.label_) for ent in nlp(text).ents]
+
+
+def add_named_ents(df):
+    """Create new column in data frame with named entity tuple extracted.
+    
+    Keyword arguments:
+    df -- a dataframe object
+    
+    """
+    df['named_ents'] = df['combined'].apply(extract_named_ents) 
+
+
+def extract_nouns(text):
+    """Extract a few types of nouns, and beginning, middle and end idx using spaCy's POS (part of speech) tagger. 
+    
+    Keyword arguments:
+    text -- the actual text source from which to extract entities
+    
+    """
+    keep_pos = ['PROPN', 'NOUN']
+    return [(tok.text, tok.idx, tok.idx+len(tok.text), tok.pos_) for tok in nlp(text) if tok.pos_ in keep_pos]
+
+
+def add_nouns(df):
+    """Create new column in data frame with nouns extracted.
+    
+    Keyword arguments:
+    df -- a dataframe object
+    
+    """
+    df['nouns'] = df['combined'].apply(extract_nouns)
+
+    
+def extract_compounds(text):
+    """Extract compound noun phrases with beginning and end idxs. 
+    
+    Keyword arguments:
+    text -- the actual text source from which to extract entities
+    
+    """
+    comp_idx = 0
+    compound = []
+    compound_nps = []
+    tok_idx = 0
+    for idx, tok in enumerate(nlp(text)):
+        if tok.dep_ == 'compound':
+
+            # capture hyphenated compounds
+            children = ''.join([c.text for c in tok.children])
+            if '-' in children:
+                compound.append(''.join([children, tok.text]))
+            else:
+                compound.append(tok.text)
+
+            # remember starting index of first child in compound or word
+            try:
+                tok_idx = [c for c in tok.children][0].idx
+            except IndexError:
+                if len(compound) == 1:
+                    tok_idx = tok.idx
+            comp_idx = tok.i
+
+        # append the last word in a compound phrase
+        if tok.i - comp_idx == 1:
+            compound.append(tok.text)
+            if len(compound) > 1: 
+                compound = ' '.join(compound)
+                compound_nps.append((compound, tok_idx, tok_idx+len(compound), 'COMPOUND'))
+
+            # reset parameters
+            tok_idx = 0 
+            compound = []
+
+    return compound_nps
+
+
+def add_compounds(df):
+    """Create new column in data frame with compound noun phrases.
+    
+    Keyword arguments:
+    df -- a dataframe object
+    
+    """
+    df['compounds'] = df['combined'].apply(extract_compounds)
+
+    
+def extract_comp_nouns(row_series, cols=[]):
+    """Combine compound noun phrases and entities. 
+    
+    Keyword arguments:
+    row_series -- a Pandas Series object
+    
+    """
+    return {noun_tuple[0] for col in cols for noun_tuple in row_series[col]}
+
+
+def add_comp_nouns(df, cols=[]):
+    """Create new column in data frame with merged entities.
+    
+    Keyword arguments:
+    df -- a dataframe object
+    cols -- a list of column names that need to be merged
+    
+    """
+    df['comp_nouns'] = df.apply(extract_comp_nouns, axis=1, cols=cols)
